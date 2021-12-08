@@ -125,15 +125,15 @@ COMMAND=bash
 MOUNT_DIRS=( )
 CONTAINER_NAME=
 
-# TODO(Lunderberg): Remove this if statement and always set to
-# "${REPO_DIR}".  The consistent directory for Jenkins is currently
-# necessary to allow cmake build commands to run in CI after the build
-# steps.
-if [[ -n "${JENKINS_HOME:-}" ]]; then
-    REPO_MOUNT_POINT=/workspace
-else
-    REPO_MOUNT_POINT="${REPO_DIR}"
-fi
+# # TODO(Lunderberg): Remove this if statement and always set to
+# # "${REPO_DIR}".  The consistent directory for Jenkins is currently
+# # necessary to allow cmake build commands to run in CI after the build
+# # steps.
+# if [[ -n "${JENKINS_HOME:-}" ]]; then
+#     REPO_MOUNT_POINT=/workspace
+# else
+#     REPO_MOUNT_POINT="${REPO_DIR}"
+# fi
 
 
 function parse_error() {

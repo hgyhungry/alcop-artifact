@@ -16,3 +16,6 @@
 [submodule "3rdparty/cutlass"]
 	path = 3rdparty/cutlass
 	url = https://github.com/NVIDIA/cutlass
+[submodule "my_cutlass"]
+	path = 3rdparty/my_cutlass
+	url = git@github.com:hgyhungry/cutlass.git

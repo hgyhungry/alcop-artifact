@@ -658,7 +658,7 @@ class OperatorConverter(object):
         if bilinear_method and input_tensor.qnn_params:
             in_expr = self.dequantize(in_expr, input_tensor)
         out = _op.image.resize2d(
-            in_expr, target_size, "NHWC", method, coordinate_transformation_mode=coord_trans
+            in_expr, target_size, None, "NHWC", method, coordinate_transformation_mode=coord_trans
         )
         if bilinear_method and output_tensor.qnn_params:
             out = self.quantize(out, output_tensor)
@@ -1174,8 +1174,6 @@ class OperatorConverter(object):
 
     def convert_sin(self, op):
         """Convert TFLite SIN"""
-        if self.is_quantized(op):
-            raise tvm.error.OpNotImplemented("TFlite quantized SIN operator is not supported yet.")
         return self._convert_unary_elemwise(_op.sin, op)
 
     def convert_tan(self, op):

@@ -299,7 +299,9 @@ IRModule ScheduleToModule(te::Schedule sch, const Array<ObjectRef>& args, const 
 
   transform::PassContext pass_ctx = transform::PassContext::Current();
   bool debug_keep_trivial_loop =
-      pass_ctx->GetConfig<Bool>("tir.debug_keep_trivial_loop", Bool(false)).value();
+      pass_ctx->GetConfig<Bool>("tir.debug_keep_trivial_loop", Bool(true)).value();
+      // TODO(Guyue): this flag is disabled to avoid some bug in pipelining pass
+      // Need to fix the bug and change it to original default value
 
   // Before TIR transformation.
   tir::Stmt stmt = te::ScheduleOps(sch, te::InferBound(sch), debug_keep_trivial_loop);

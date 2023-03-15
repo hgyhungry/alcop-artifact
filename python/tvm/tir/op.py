@@ -1226,6 +1226,80 @@ def indexmod(a, b, span=None):
     """
     return _ffi_api._OpIndexMod(a, b, span)  # type: ignore
 
+def bitwise_xor(a, b, span=None):
+    """Compute the bitwise xor (^) of two input a and b
+    
+    Parameters
+    ----------
+    a : PrimExpr
+        The left hand operand.
+
+    b : PrimExpr
+        The right hand operand.
+
+    span : Optional[Span]
+        The location of this operator in the source.
+
+    Returns
+    -------
+    res : PrimExpr
+        The result expression.
+
+    Note
+    ----
+    Use this function to compute bitwise xor.
+    """
+    return _ffi_api.bitwise_xor(a, b, span)
+
+def bitwise_and(a, b, span=None):
+    """Compute the bitwise and (&) of two input a and b
+    
+    Parameters
+    ----------
+    a : PrimExpr
+        The left hand operand.
+
+    b : PrimExpr
+        The right hand operand.
+
+    span : Optional[Span]
+        The location of this operator in the source.
+
+    Returns
+    -------
+    res : PrimExpr
+        The result expression.
+
+    Note
+    ----
+    Use this function to compute bitwise and.
+    """
+    return _ffi_api.bitwise_and(a, b, span)
+
+def bitwise_or(a, b, span=None):
+    """Compute the bitwise or (|) of two input a and b
+    
+    Parameters
+    ----------
+    a : PrimExpr
+        The left hand operand.
+
+    b : PrimExpr
+        The right hand operand.
+
+    span : Optional[Span]
+        The location of this operator in the source.
+
+    Returns
+    -------
+    res : PrimExpr
+        The result expression.
+
+    Note
+    ----
+    Use this function to compute bitwise or.
+    """
+    return _ffi_api.bitwise_or(a, b, span)
 
 def truncdiv(a, b, span=None):
     """Compute the truncdiv of two expressions.

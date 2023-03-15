@@ -1286,6 +1286,10 @@ constexpr const char* double_buffer_scope = "double_buffer_scope";
 constexpr const char* double_buffer_write = "double_buffer_write";
 /*! \brief Mark realization for rolling buffer optimization */
 constexpr const char* rolling_buffer_scope = "rolling_buffer_scope";
+/*! \brief Mark realization for pipelined buffer optimization */
+constexpr const char* pipelined_buffer_scope = "pipelined_buffer_scope";
+/*! \brief Mark realization for swizzled buffer optimization */
+constexpr const char* swizzled_buffer_scope = "swizzled_buffer_scope";
 /*! \brief Mark of scan update scope */
 constexpr const char* scan_update_scope = "scan_update_scope";
 /*! \brief Mark of scan init scope */

@@ -149,6 +149,23 @@ class DynSharedMemLinearAccessPatternFinder final : public StmtExprVisitor {
     if (op->op.same_as(builtin::address_of())) {
       const LoadNode* l = op->args[0].as<LoadNode>();
       this->VisitExpr(l->index);
+    } else if (op->op.same_as(builtin::tvm_pipeline_memcpy_async())) {
+      scope_.push_back(StmtEntry());
+      // Add write access
+      const VarNode* buf = op->args[0].as<VarNode>();
+      auto it = alloc_info_.find(buf);
+      if (it != alloc_info_.end() && it->second.alloc) {
+        ICHECK_LT(it->second.level, scope_.size());
+        if (IsDynamicSharedMemory(GetRef<Var>(buf))) {
+          scope_[it->second.level].touched.push_back(buf);
+        }
+        StmtEntry e = scope_.back();
+        scope_.pop_back();
+        if (e.touched.size() != 0) {
+          e.stmt = op;
+          linear_seq_.push_back(e);
+        }
+      }
     } else {
       StmtExprVisitor::VisitExpr_(op);
     }
@@ -326,6 +343,29 @@ class DynamicSharedMemoryRewriter : public StmtExprMutator {
       PrimExpr extent = this->VisitExpr(op->args[3]);
       return Call(op->dtype, op->op,
                   {op->args[0], merged_buf_var_, extra_offset + offset, extent, op->args[4]});
+    } else if (op->op.same_as(builtin::tvm_pipeline_memcpy_async())) {
+      ICHECK_GE(op->args.size(), 7U);
+      ICHECK_LE(op->args.size(), 8U);
+      if (op->args[5].as<StringImmNode>()->value == "_pipeline_scope_shared"||
+      op->args[5].as<StringImmNode>()->value == "_pipeline_scope_shared.dyn") {
+        DataType dtype = DataType(runtime::String2DLDataType(op->args[6].as<StringImmNode>()->value));
+        Var buffer = Downcast<Var>(op->args[0]);
+        if (!IsDynamicSharedMemory(buffer)) {
+          return StmtExprMutator::VisitExpr_(op);
+        }
+        PrimExpr extra_offset = GetBufferOffset(buffer, dtype);
+        PrimExpr offset = this->VisitExpr(op->args[1]);
+        PrimExpr extent = this->VisitExpr(op->args[4]);
+        if (op->args.size() == 7U) {
+          return Call(op->dtype, op->op, 
+            {merged_buf_var_, extra_offset + offset, op->args[2], op->args[3], extent, op->args[5], op->args[6]});
+        }
+        return Call(op->dtype, op->op, 
+          {merged_buf_var_, extra_offset + offset, op->args[2], op->args[3], extent, op->args[5], op->args[6], op->args[7]});
+      }
+      else {
+        return StmtExprMutator::VisitExpr_(op);
+      }
     } else {
       return StmtExprMutator::VisitExpr_(op);
     }

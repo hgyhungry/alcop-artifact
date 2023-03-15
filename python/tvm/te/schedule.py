@@ -519,6 +519,30 @@ class Stage(Object):
         """
         _ffi_api.StageRollingBuffer(self)
 
+    def pipelined_buffer(self, num_stage):
+        """Compute the current stage with pipelining optimization
+
+        This can only be applied to cache_read stage.
+        This will automatically overlap the loading to this stage with
+        the usage of this stage by successors (i.e., load-compute overlap).
+
+        Parameters
+        ----------
+        num_stage   : int
+            The number of stages in pipeline. 1 means no pipelining. 
+            n means the compute is overlapped with (n-1) load for future chunks
+        """
+        _ffi_api.StagePipelinedBuffer(self, num_stage)
+    
+    def swizzled_buffer(self):
+        """Compute the current stage with swizzled optimization
+
+        This is used to indicate that there is a swizzled mapping between 
+        the offset calculated by flattening the coordinates and
+        the offset in this buffer. This is used to optimize GPU shared 
+        memory bank conflict.
+        """
+        _ffi_api.StageSwizzledBuffer(self)
 
 @tvm._ffi.register_object
 class SpecializedCondition(Object):

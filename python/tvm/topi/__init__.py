@@ -63,6 +63,7 @@ from . import sparse
 from . import hls
 from . import random
 from . import hexagon
+from . import exp_cuda
 
 # error reporting
 from .utils import InvalidShapeError

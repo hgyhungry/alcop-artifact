@@ -169,6 +169,17 @@ class CUDAWrappedFunc {
     }
     CUstream strm = static_cast<CUstream>(CUDAThreadEntry::ThreadLocal()->stream);
     ThreadWorkLoad wl = launch_param_config_.Extract(args);
+    // Guyue: support setting dynamic shared memory (which allows larger shared memory size)
+    CUresult _result0 = cuFuncSetAttribute(fcache_[device_id], CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES, wl.dyn_shmem_size);
+    CUresult _result1 = cuFuncSetAttribute(fcache_[device_id], CU_FUNC_ATTRIBUTE_PREFERRED_SHARED_MEMORY_CARVEOUT, 100);
+    if (_result0 != CUDA_SUCCESS || _result1 != CUDA_SUCCESS) {
+      const char* msg;
+      cuGetErrorName(_result0, &msg);
+      std::ostringstream os;
+      os << "cuFuncSetAttribute Error: " << msg << "\n"
+         << " shared memory size " << wl.dyn_shmem_size << "\n";
+      LOG(ERROR) << os.str();
+    }
     CUresult result = cuLaunchKernel(fcache_[device_id], wl.grid_dim(0), wl.grid_dim(1),
                                      wl.grid_dim(2), wl.block_dim(0), wl.block_dim(1),
                                      wl.block_dim(2), wl.dyn_shmem_size, strm, void_args, nullptr);
@@ -179,7 +190,8 @@ class CUDAWrappedFunc {
       os << "CUDALaunch Error: " << msg << "\n"
          << " grid=(" << wl.grid_dim(0) << "," << wl.grid_dim(1) << "," << wl.grid_dim(2) << "), "
          << " block=(" << wl.block_dim(0) << "," << wl.block_dim(1) << "," << wl.block_dim(2)
-         << ")\n";
+         << ")"
+         << " shared memory size " << wl.dyn_shmem_size << "\n";
       std::string cuda = m_->GetSource("");
       if (cuda.length() != 0) {
         os << "// func_name=" << func_name_ << "\n"

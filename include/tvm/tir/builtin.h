@@ -513,6 +513,15 @@ TVM_DLL const Op& tvm_global_barrier_kinit();
  */
 TVM_DLL const Op& tvm_thread_allreduce();
 
+
+// TODO(guyue): I think this intrinsic is deprecated. Can be removed
+// Shared memory specific intrisic temporarily registered to CUDA.
+/*!
+ * \brief tvm intrinsic for shared memory load operators.
+ * void tvm_load_shared(Expr global_ptr, Expr shared_ptr, UintImm ldm) 
+ */
+TVM_DLL const Op& tvm_load_shared();
+
 // TODO(tvm-team) TensorCore specific intrinsics should be directly registered under
 //                cuda. namespace and used through op.
 /*!
@@ -528,6 +537,26 @@ TVM_DLL const Op& tvm_thread_allreduce();
  *  }
  */
 TVM_DLL const Op& tvm_load_matrix_sync();
+
+/*!
+ * \brief tvm intrinsic for ptx ldmatrix
+ * 
+ * void tvm_asm_ldmatrix(Var fragment, UIntImm m, UIntImm n, UIntImm k,
+ *                       Expr index, Expr buffer_ptr, UIntImm num,
+ *                       StringImm trans) {
+ *     unsigned p = __cvta_generic_to_shared(buffer_ptr);
+ *     asm volatile("ldmatrix.sync.aligned.m8n8.x#num#")
+ *     if (trans == "trans") asm volatile(".trans")
+ *     asm volatile(".shared.b16 {%0[, %1, %2, %3]}, [%4];"
+ *     :"=r"(fragment[index].x[0]) [,
+ *      "=r"(fragment[index].x[1]) ,
+ *      "=r"(fragment[index].x[2]) ,
+ *      "=r"(fragment[index].x[3]) ,
+ *      ]
+ *     :"r"(p));
+ * }
+ */
+TVM_DLL const Op& tvm_asm_ldmatrix();
 
 /*!
  * \brief tvm intrinsic for tensor core mma_sync operators.
@@ -614,6 +643,41 @@ TVM_DLL const Op& texture2d_store();
  * \brief Load from texture 2d memory
  */
 TVM_DLL const Op& texture2d_load();
+
+/*!
+ * \brief Asynchronous memory copy instruction
+ */
+TVM_DLL const Op& tvm_pipeline_memcpy_async();
+
+/*!
+ * \brief Asynchronous memory copy synchronization primitive
+ */
+TVM_DLL const Op& tvm_pipeline_producer_acquire();
+
+/*!
+ * \brief Asynchronous memory copy synchronization primitive
+ */
+TVM_DLL const Op& tvm_pipeline_producer_commit();
+
+/*!
+ * \brief Asynchronous memory copy synchronization primitive
+ */
+TVM_DLL const Op& tvm_pipeline_consumer_wait();
+
+/*!
+ * \brief Asynchronous memory copy synchronization primitive
+ */
+TVM_DLL const Op& tvm_pipeline_consumer_release();
+
+/*!
+ * \brief Asynchronous memory copy pipeline declaration primitive
+ */
+TVM_DLL const Op& tvm_pipeline_decl();
+
+/*!
+ * \brief Asynchronous memory copy pipeline flush primitive
+ */
+TVM_DLL const Op& tvm_pipeline_flush();
 
 /*! \brief The kind of structure field info used in intrinsic */
 enum TVMStructFieldKind : int {

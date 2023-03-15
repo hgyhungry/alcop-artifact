@@ -54,9 +54,16 @@ class FragmentGetter : public StmtExprVisitor {
     StmtExprVisitor::VisitExpr_(op);
 
     if (op->op.same_as(builtin::tvm_load_matrix_sync()) ||
-        op->op.same_as(builtin::tvm_store_matrix_sync())) {
+        op->op.same_as(builtin::tvm_store_matrix_sync()) ||
+        op->op.same_as(builtin::tvm_asm_ldmatrix())) {
       // Get shape and layout information from load and store intrinsic
-      ICHECK_EQ(op->args.size(), 8U);
+      if (op->op.same_as(builtin::tvm_load_matrix_sync())){
+        ICHECK_GE(op->args.size(), 8U);
+      } else if (op->op.same_as(builtin::tvm_asm_ldmatrix())) {
+        ICHECK_EQ(op->args.size(), 9U);
+      } else {
+        ICHECK_EQ(op->args.size(), 8U);
+      }
       const VarNode* buffer_var = op->args[0].as<VarNode>();
       ICHECK(buffer_var);
       // Get shape

@@ -222,6 +222,13 @@ TIR_DEFINE_BUILTIN_FUNC(tvm_thread_allreduce)
 TIR_DEFINE_BUILTIN_FUNC(tvm_load_matrix_sync)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kReadState));
 
+TIR_DEFINE_BUILTIN_FUNC(tvm_asm_ldmatrix)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kReadState));
+
+// TODO(guyue): deprecated clean-up
+TIR_DEFINE_BUILTIN_FUNC(tvm_load_shared)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kReadState));
+
 TIR_DEFINE_BUILTIN_FUNC(tvm_mma_sync)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque));
 
@@ -232,6 +239,10 @@ TIR_DEFINE_BUILTIN_FUNC(tvm_fill_fragment)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque));
 
 TIR_DEFINE_BUILTIN_FUNC(tvm_store_matrix_sync)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque));
+
+// TODO(guyue): deprecated clean-up
+TIR_DEFINE_BUILTIN_FUNC(my_tvm_store_matrix_sync)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque));
 
 TIR_DEFINE_BUILTIN_FUNC(vectorhigh)
@@ -255,6 +266,27 @@ TIR_DEFINE_BUILTIN_FUNC(texture2d_store)
 
 TIR_DEFINE_BUILTIN_FUNC(texture2d_load)
     .set_attr<TVectorizable>("TVectorizable", true)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque));
+
+TIR_DEFINE_BUILTIN_FUNC(tvm_pipeline_memcpy_async)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque));
+
+TIR_DEFINE_BUILTIN_FUNC(tvm_pipeline_producer_acquire)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque));
+
+TIR_DEFINE_BUILTIN_FUNC(tvm_pipeline_producer_commit)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque));
+
+TIR_DEFINE_BUILTIN_FUNC(tvm_pipeline_consumer_wait)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque));
+
+TIR_DEFINE_BUILTIN_FUNC(tvm_pipeline_consumer_release)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque));
+
+TIR_DEFINE_BUILTIN_FUNC(tvm_pipeline_decl)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque));
+
+TIR_DEFINE_BUILTIN_FUNC(tvm_pipeline_flush)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque));
 
 }  // namespace builtin

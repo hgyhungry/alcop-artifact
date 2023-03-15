@@ -430,6 +430,21 @@ Stage& Stage::rolling_buffer() {
   return *this;
 }
 
+Stage& Stage::pipelined_buffer(int num_stage) {
+  StageNode* self = operator->();
+  ICHECK(!self->is_output) << "Cannot apply pipelined buffer on output";
+  self->pipelined_buffer = true;
+  self->num_pipelined_stage = num_stage;
+  return *this;
+}
+
+Stage& Stage::swizzled_buffer() {
+  StageNode* self = operator->();
+  ICHECK(!self->is_output) << "Cannot apply swizzle buffer on output";
+  self->swizzled_buffer = true;
+  return *this;
+}
+
 Stage CopyStage(const Stage& s) {
   ObjectPtr<StageNode> n = make_object<StageNode>(*s.operator->());
   return Stage(n);
@@ -894,6 +909,10 @@ TVM_REGISTER_GLOBAL("te.StageStorageAlign").set_body_method(&Stage::storage_alig
 TVM_REGISTER_GLOBAL("te.StageDoubleBuffer").set_body_method(&Stage::double_buffer);
 
 TVM_REGISTER_GLOBAL("te.StageRollingBuffer").set_body_method(&Stage::rolling_buffer);
+
+TVM_REGISTER_GLOBAL("te.StagePipelinedBuffer").set_body_method(&Stage::pipelined_buffer);
+
+TVM_REGISTER_GLOBAL("te.StageSwizzledBuffer").set_body_method(&Stage::swizzled_buffer);
 
 TVM_REGISTER_GLOBAL("te.ScheduleNormalize").set_body_method(&Schedule::normalize);
 

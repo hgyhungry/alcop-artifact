@@ -89,6 +89,12 @@ void CodeGenSourceBase::PrintIndent() {
   }
 }
 
+void CodeGenSourceBase::PrintIndent(std::ostream& os, int d){
+  for (int i = 0; i < indent_ + d; ++i) {
+    os << ' ';
+  }
+}
+
 void CodeGenSourceBase::MarkConst(std::string vid) {
   auto it = ssa_assign_map_.find(vid);
   if (it == ssa_assign_map_.end()) {

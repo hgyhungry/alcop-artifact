@@ -251,7 +251,12 @@ class XGBoostCostModel(CostModel):
         for res in result:
             if res.status != StatusKind.COMPLETE:
                 continue
-            x, y = res.value
+
+            # use try-except to handle logs that have no results
+            try:
+                x, y = res.value
+            except:
+                continue
             if len(x) == fea_len:
                 xs.append(x)
                 ys.append(y)

@@ -41,7 +41,7 @@ from tvm import rpc as _rpc
 from tvm.autotvm.env import AutotvmGlobalScope, reset_global_scope
 from tvm.contrib import ndk, stackvm, tar
 from tvm.contrib.popen_pool import PopenPoolExecutor
-from tvm.driver import build
+from tvm.driver import build, lower
 from tvm.error import TVMError
 from tvm.target import Target
 
@@ -49,6 +49,12 @@ from ..env import AutotvmGlobalScope
 from ..task.space import InstantiationError
 from ..utils import get_const_tuple
 from .measure import Builder, MeasureErrorNo, MeasureResult, Runner
+
+from tvm.contrib.auto_pipeline import (
+    InjectPipelinedBuffer,
+    InjectSharedMemSwizzle
+)
+from tvm import tir
 
 logger = logging.getLogger("autotvm")
 
@@ -487,7 +493,16 @@ def _build_func_common(measure_input, runtime=None, check_gpu=None, build_option
             func = vta.build(s, args, target_host=task.target_host)
         else:
             with tvm.ir.transform.PassContext(config=opts):
-                func = build(s, args, target_host=task.target_host, runtime=runtime)
+                #
+                # Apply pipelining optimization after all existing optimizations
+                # This is just for evaluation convenience, so that we can skip 
+                # this pass in python and not have to re-compile the TVM source
+                #
+                mod = lower(s, args, )
+                mod = tir.transform.Apply(InjectPipelinedBuffer())(mod)
+                mod = tir.transform.Apply(InjectSharedMemSwizzle())(mod)
+                mod = tir.transform.Simplify()(mod)
+                func = build(mod, target_host=task.target_host, runtime=runtime)
     return func, tuple((get_const_tuple(x.shape), x.dtype) for x in args)
 
 

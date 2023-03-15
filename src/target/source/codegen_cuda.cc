@@ -132,6 +132,77 @@ std::string CodeGenCUDA::Finish() {
     decl_stream << "#include <mma.h>\n";
   }
 
+  if (need_pipeline_h_) {
+    // Guyue: add utils for pipeline support; 
+    // the original cuda pipeline primitives are too complicated. 
+    // I abstract four synchronization primitives and wrap them in a class.
+    decl_stream << "\
+#include <cuda/pipeline>\n\
+#include <cooperative_groups/memcpy_async.h>\n";
+    decl_stream << "                                                      \
+namespace my_pipeline {                                                   \
+template<int NumStage>\
+class pipeline_scope_threadblock {\
+public:\
+    static __device__ __forceinline__ void producer_acquire() {};\
+    static __device__ __forceinline__ void producer_commit() {\
+        asm volatile(\"cp.async.commit_group;\\n\"::);\
+    };\
+    static __device__ __forceinline__ void consumer_wait() {\
+        asm volatile (\"cp.async.wait_group %0;\\n\"::\"n\"(NumStage-2));\
+        __syncthreads();\
+    }\
+    static __device__ __forceinline__ void consumer_release() {\
+      __syncthreads();\
+    }\
+    static __device__ __forceinline__ void flush(){\
+        asm volatile(\"cp.async.wait_all;\\n\"::);\
+        __syncthreads();\
+    }\
+};\
+\
+template<>\
+class pipeline_scope_threadblock<2> {\
+public:\
+    static __device__ __forceinline__ void producer_acquire() {};\
+    static __device__ __forceinline__ void producer_commit() {\
+        asm volatile(\"cp.async.commit_group;\\n\"::);\
+    };\
+    static __device__ __forceinline__ void consumer_wait() {\
+        asm volatile (\"cp.async.wait_all;\\n\"::);\
+        __syncthreads();\
+    }\
+    static __device__ __forceinline__ void consumer_release() {\
+        __syncthreads();\
+    }\
+    static __device__ __forceinline__ void flush(){\
+        asm volatile (\"cp.async.wait_all;\\n\"::);\
+        __syncthreads();\
+    }\
+};\
+template<>\
+class pipeline_scope_threadblock<1> {\
+public:\
+    static __device__ __forceinline__ void producer_acquire() {};\
+    static __device__ __forceinline__ void producer_commit() {\
+        asm volatile(\"cp.async.commit_group;\\n\"::);\
+    };\
+    static __device__ __forceinline__ void consumer_wait() {\
+        asm volatile (\"cp.async.wait_all;\\n\"::);\
+        __syncthreads();\
+    }\
+    static __device__ __forceinline__ void consumer_release() {\
+        __syncthreads();\
+    }\
+    static __device__ __forceinline__ void flush(){\
+        asm volatile (\"cp.async.wait_all;\\n\"::);\
+        __syncthreads();\
+    }\
+};\
+}"
+;
+  }
+
   decl_stream << "\n#ifdef _WIN32\n";
   decl_stream << "  using uint = unsigned int;\n";
   decl_stream << "  using uchar = unsigned char;\n";
@@ -674,9 +745,101 @@ void CodeGenCUDA::VisitExpr_(const CallNode* op, std::ostream& os) {
     os << "], ";
     this->PrintExpr(op->args[5], os);
     os << ")";
+  } else if (op->op.same_as(builtin::tvm_load_shared())) { 
+    // TODO(Guyue): this part is deprecated. Clean-up this.
+    if (op->args[5].as<StringImmNode>()->value == "async") {
+      need_mma_h_ = true;
+      if (op->args[4].as<StringImmNode>()->value == "linear"){
+        os << "__pipeline_memcpy_async(";
+        os << "(reinterpret_cast<float4*>(";
+        this->PrintExpr(op->args[1], os);
+        os << " + ((threadIdx.x & 24) >> 3) * ";
+        this->PrintExpr(op->args[3], os);
+        os << ") + (threadIdx.x & 7))";
+        os << ", ";
+        os << "(reinterpret_cast<float4*>(";
+        this->PrintExpr(op->args[0], os);
+        os << " + ((threadIdx.x & 24) >> 3) * ";
+        this->PrintExpr(op->args[2], os);
+        os << ") + (threadIdx.x & 7))";
+        os << ", (size_t)16)";
+      }
+      else if (op->args[4].as<StringImmNode>()->value == "xor"){
+        os << "__pipeline_memcpy_async(";
+        os << "(reinterpret_cast<float4*>(";
+        this->PrintExpr(op->args[1], os);
+        os << " + ((threadIdx.x & 24) >> 3) * ";
+        this->PrintExpr(op->args[3], os);
+        os << ") + ((threadIdx.x & 7) ^ (((threadIdx.x & 24) >> 3) + ((threadIdx.y & 1) << 2))))";
+        os << ", ";
+        os << "(reinterpret_cast<float4*>(";
+        this->PrintExpr(op->args[0], os);
+        os << " + ((threadIdx.x & 24) >> 3) * ";
+        this->PrintExpr(op->args[2], os);
+        os << ") + (threadIdx.x & 7))";
+        os << ", (size_t)16)";
+      } else if (op->args[4].as<StringImmNode>()->value == "tf32_rhs_xor"){
+        os << "__pipeline_memcpy_async(";
+        os << "(reinterpret_cast<float4*>(";
+        this->PrintExpr(op->args[1], os);
+        os << " + ((threadIdx.x & 24) >> 3) * ";
+        this->PrintExpr(op->args[3], os);
+        // os << ") + ((((threadIdx.x & 6)) ^ ((threadIdx.x & 24) >> 2))) + (threadIdx.x & 1)) = *(reinterpret_cast<float4*>(";
+        os << ") + ((threadIdx.x & 7) ^ ((threadIdx.x & 24) >> 2)))";
+        os << ", ";
+        os << "(reinterpret_cast<float4*>(";
+        this->PrintExpr(op->args[0], os);
+        os << " + ((threadIdx.x & 24) >> 3) * ";
+        this->PrintExpr(op->args[2], os);
+        os << ") + (threadIdx.x & 7))";
+        os << ", (size_t)16)";
+      }
+    }
+    else {
+      if (op->args[4].as<StringImmNode>()->value == "linear"){
+        os << "*(reinterpret_cast<float4*>(";
+        this->PrintExpr(op->args[1], os);
+        os << " + ((threadIdx.x & 24) >> 3) * ";
+        this->PrintExpr(op->args[3], os);
+        os << ") + (threadIdx.x & 7)) = *(reinterpret_cast<float4*>(";
+        this->PrintExpr(op->args[0], os);
+        os << " + ((threadIdx.x & 24) >> 3) * ";
+        this->PrintExpr(op->args[2], os);
+        os << ") + (threadIdx.x & 7))";
+      } else if (op->args[4].as<StringImmNode>()->value == "xor"){
+        os << "*(reinterpret_cast<float4*>(";
+        this->PrintExpr(op->args[1], os);
+        os << " + ((threadIdx.x & 24) >> 3) * ";
+        this->PrintExpr(op->args[3], os);
+        os << ") + ((threadIdx.x & 7) ^ (((threadIdx.x & 24) >> 3) + ((threadIdx.y & 1) << 2)))) = *(reinterpret_cast<float4*>(";
+        this->PrintExpr(op->args[0], os);
+        os << " + ((threadIdx.x & 24) >> 3) * ";
+        this->PrintExpr(op->args[2], os);
+        os << ") + (threadIdx.x & 7))";
+      } else if (op->args[4].as<StringImmNode>()->value == "tf32_rhs_xor"){
+        os << "*(reinterpret_cast<float4*>(";
+        this->PrintExpr(op->args[1], os);
+        os << " + ((threadIdx.x & 24) >> 3) * ";
+        this->PrintExpr(op->args[3], os);
+        // os << ") + ((((threadIdx.x & 6)) ^ ((threadIdx.x & 24) >> 2))) + (threadIdx.x & 1)) = *(reinterpret_cast<float4*>(";
+        os << ") + ((threadIdx.x & 7) ^ ((threadIdx.x & 24) >> 2))) = *(reinterpret_cast<float4*>(";
+        this->PrintExpr(op->args[0], os);
+        os << " + ((threadIdx.x & 24) >> 3) * ";
+        this->PrintExpr(op->args[2], os);
+        os << ") + (threadIdx.x & 7))";
+      }
+    }
   } else if (op->op.same_as(builtin::tvm_load_matrix_sync())) {
+    // TODO(Guyue): this part is deprecated. Clean-up this.
     need_mma_h_ = true;
-    ICHECK_EQ(op->args.size(), 8U);
+    ICHECK_GE(op->args.size(), 8U);
+    std::stringstream scope;
+    this->PrintExpr(op->args[0], scope);
+    /*
+     * Case 1: no modifiers are provided. 
+     *         The original "wmma::load_matrix_sync" is used
+     */
+    if (op->args.size() == 8U){
     os << "nvcuda::wmma::load_matrix_sync(";
     this->PrintExpr(op->args[0], os);
     os << "[";
@@ -686,6 +849,205 @@ void CodeGenCUDA::VisitExpr_(const CallNode* op, std::ostream& os) {
     os << ", ";
     this->PrintExpr(op->args[6], os);
     os << ")";
+    } else {
+      /* 
+       * Case 2: a single modifier is provided.
+       *         When "xor" is set, the ldmatrix must also be set
+       *         So this case stands for ldmatrix with linear layout
+       */
+      if ((op->args.size() == 9U) && 
+          (op->args[8].as<StringImmNode>()->value == "ldmatrix")
+      ){
+        if ((op->dtype == DataType::Float(32)) && 
+            (op->args[7].as<StringImmNode>()->value == "row_major") &&
+            (scope.str().find("matrix_b") != std::string::npos))
+        {
+            os << "float* s_pointer = ";
+            this->PrintExpr(op->args[5], os);
+            os << "+ (threadIdx.x >> 2) + (threadIdx.x & 3) * ";
+            this->PrintExpr(op->args[6], os);
+            os <<";\n";
+            PrintIndent(os, 0);
+            this->PrintExpr(op->args[0], os);
+            os << "[";
+            this->PrintExpr(op->args[4], os);
+            os << "].x[0] = *(s_pointer);\n";
+
+            PrintIndent(os, 0);
+            this->PrintExpr(op->args[0], os);
+            os << "[";
+            this->PrintExpr(op->args[4], os);
+            os << "].x[1] = *(s_pointer + 4 * ";
+            this->PrintExpr(op->args[6], os);
+            os << ");\n";
+
+            PrintIndent(os, 0);
+            this->PrintExpr(op->args[0], os);
+            os << "[";
+            this->PrintExpr(op->args[4], os);
+            os << "].x[2] = *(s_pointer + 8);\n";
+
+            PrintIndent(os, 0);
+            this->PrintExpr(op->args[0], os);
+            os << "[";
+            this->PrintExpr(op->args[4], os);
+            os << "].x[3] = *(s_pointer + 8 + 4 * ";
+            this->PrintExpr(op->args[6], os);
+            os << ")";
+        } else {
+          os << "float* s_pointer = reinterpret_cast<float* >(";
+          this->PrintExpr(op->args[5], os);
+          if (op->args[7].as<StringImmNode>()->value == "row_major"){
+            os << "+ (threadIdx.x & 15) * ";
+            this->PrintExpr(op->args[6], os);
+            os << ") + ((threadIdx.x & 16) >>2)";
+            os << ";\n";
+          } else {
+            os << " + ((threadIdx.x & 7) + ((threadIdx.x & 16)>>1)) * ";
+            this->PrintExpr(op->args[6], os);
+            os << ") + ((threadIdx.x & 8)>>1);\n";
+          }
+        }
+      }
+      /*
+      * Case 3: two or more modifiers are provided.
+      *         This could be ldmatrix + xor
+      */
+      else if ((op->args.size() == 10U) &&
+              (op->args[8].as<StringImmNode>()->value == "ldmatrix") &&
+              (op->args[9].as<StringImmNode>()->value == "xor")
+      ){
+      if ((op->dtype == DataType::Float(32)) &&
+          (op->args[7].as<StringImmNode>()->value == "row_major") &&
+          (scope.str().find("matrix_b") != std::string::npos) && (op->args.size() == 10U)){
+          std::stringstream shm_ptr_t;
+          this->PrintExpr(op->args[5].as<CallNode>()->args[0], shm_ptr_t);
+          int start_t = 0;
+          int end_t = 0;
+          for (size_t i=0; i < shm_ptr_t.str().length(); i++){
+            if (shm_ptr_t.str()[i] == '[') start_t = i+1;
+            if (shm_ptr_t.str()[i] == ']') {
+              end_t = i;
+              break;
+            }
+          }
+          std::string index_t = shm_ptr_t.str().substr(start_t, end_t - start_t);
+          std::string var_t = shm_ptr_t.str().substr(0, start_t-1);
+
+          os << "int offset = " << index_t;
+          os << "+ (threadIdx.x >> 2) + (threadIdx.x & 3) * ";
+          this->PrintExpr(op->args[6], os);
+          os <<";\n";
+
+          PrintIndent(os, 0);
+          this->PrintExpr(op->args[0], os);
+          os << "[";
+          this->PrintExpr(op->args[4], os);
+          os << "].x[0] = *(" << var_t << " + (offset ^ ((threadIdx.x & 3) << 3)));\n";
+
+          PrintIndent(os, 0);
+          this->PrintExpr(op->args[0], os);
+          os << "[";
+          this->PrintExpr(op->args[4], os);
+          os << "].x[1] = *(" << var_t << " + 4 * ";
+          this->PrintExpr(op->args[6], os);
+          os << "+ (offset ^ ((threadIdx.x & 3) << 3)));\n";
+
+          PrintIndent(os, 0);
+          this->PrintExpr(op->args[0], os);
+          os << "[";
+          this->PrintExpr(op->args[4], os);
+          os << "].x[2] = *(" << var_t << " + ((offset + 8) ^ ((threadIdx.x & 3) << 3)));\n";
+
+          PrintIndent(os, 0);
+          this->PrintExpr(op->args[0], os);
+          os << "[";
+          this->PrintExpr(op->args[4], os);
+          os << "].x[3] = *(" << var_t << " + 4 * ";
+          this->PrintExpr(op->args[6], os);
+          os << "+ ((offset + 8) ^ ((threadIdx.x & 3) << 3)))";
+        } else {
+          os << "float* s_pointer = reinterpret_cast<float* >(";
+          std::stringstream shm_ptr;
+          this->PrintExpr(op->args[5].as<CallNode>()->args[0], shm_ptr);
+          int start = 0;
+          int end = 0;
+          for (size_t i=0; i < shm_ptr.str().length(); i++){
+            if (shm_ptr.str()[i] == '[') start = i+1;
+            if (shm_ptr.str()[i] == ']') {
+              end = i;
+              break;
+            }
+          }
+          std::string index = shm_ptr.str().substr(start, end - start);
+          std::string var = shm_ptr.str().substr(0, start-1);
+          if (op->args[7].as<StringImmNode>()->value == "row_major") {
+            if (op->dtype == DataType::Float(16) || op->dtype == DataType::BFloat(16)){
+              os << var << "+ ((" << index << "+ ((threadIdx.x & 16) >> 1) + (threadIdx.x & 15) * ";
+              this->PrintExpr(op->args[6], os);
+              os << ")^((threadIdx.x & 7)<<3)));\n";
+            } else {
+              os << var << "+ ((" << index << "+ ((threadIdx.x & 16) >> 2) + (threadIdx.x & 15) * ";
+              this->PrintExpr(op->args[6], os);
+              os << ")^((threadIdx.x & 7)<<2)));\n";
+            }
+          } else {
+            if (op->dtype == DataType::Float(16) || op->dtype == DataType::BFloat(16)){
+              os << var << "+ ((" << index << "+ (threadIdx.x & 8) + ((threadIdx.x & 7) + ((threadIdx.x & 16)>>1)) * ";
+              this->PrintExpr(op->args[6], os);
+              os << ")^((threadIdx.x & 7)<<3)));\n";
+            } else {
+              os << var << "+ ((" << index << "+ ((threadIdx.x & 8)>>1) + ((threadIdx.x & 7) + ((threadIdx.x & 16)>>1)) * ";
+              this->PrintExpr(op->args[6], os);
+              os << ")^((threadIdx.x & 7)<<2)));\n";
+            }
+          }
+        }
+      }
+      if (!((op->dtype == DataType::Float(32)) && 
+            (op->args[7].as<StringImmNode>()->value == "row_major") &&
+            (scope.str().find("matrix_b") != std::string::npos)))
+      {
+        PrintIndent(os, 0);
+        os << "unsigned s_pointer_t = __nv_cvta_generic_to_shared_impl((void*) s_pointer); \n";
+        PrintIndent(os, 0);
+        os << "int* a_int = reinterpret_cast<int*>(";
+        this->PrintExpr(op->args[0], os);
+        os << "[";
+        this->PrintExpr(op->args[4], os);
+        os << "].x);\n";
+        PrintIndent(os, 0);
+        if ((op->dtype == DataType::Float(16) || op->dtype == DataType::BFloat(16)) && 
+            (op->args[7].as<StringImmNode>()->value == "row_major") &&
+            (scope.str().find("matrix_b") != std::string::npos)){
+          os << "asm volatile (\"ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 ";
+        } else {
+          os << "asm volatile (\"ldmatrix.sync.aligned.m8n8.x4.shared.b16 ";
+        }
+        os << "{%0, %1, %2, %3}, [%4];\" : \"=r\"(a_int[0]), \"=r\"(a_int[1]), \"=r\"(a_int[2]), \"=r\"(a_int[3]): \"r\"(s_pointer_t))";
+      }
+    }
+    if (op->dtype == DataType::Float(32)){
+      os << "; \n";
+      os << "#pragma unroll\n";
+      PrintIndent(os, 0);
+      os << "for (int t = 0; t < ";
+      this->PrintExpr(op->args[0], os);
+      os << "[";
+      this->PrintExpr(op->args[4], os);
+      os << "].num_elements; t++) { \n";
+      PrintIndent(os, 2);
+      this->PrintExpr(op->args[0], os);
+      os << "[";
+      this->PrintExpr(op->args[4], os);
+      os << "].x[t] = nvcuda::wmma::__float_to_tf32(";
+      this->PrintExpr(op->args[0], os);
+      os << "[";
+      this->PrintExpr(op->args[4], os);
+      os << "].x[t]);\n";
+      PrintIndent(os, 0);
+      os << "}";
+    }
   } else if (op->op.same_as(builtin::tvm_store_matrix_sync())) {
     need_mma_h_ = true;
     ICHECK_EQ(op->args.size(), 8U);
@@ -723,6 +1085,189 @@ void CodeGenCUDA::VisitExpr_(const CallNode* op, std::ostream& os) {
       this->PrintExpr(op->args[i * 2 + 1], os);
       os << "]" << ((i < 3) ? ", " : ")");
     }
+  } else if (op->op.same_as(builtin::tvm_asm_ldmatrix())) {
+    // TODO(Guyue): deprecated. Clean-up this.
+    need_mma_h_ = true;
+    ICHECK_EQ(op->args.size(), 9U);
+    os << "asm volatile (\"ldmatrix.sync.aligned.m8n8.x";
+    this->PrintExpr(op->args[6], os);
+    if (op->args[8].as<StringImmNode>()->value == "trans") {
+      os << ".trans";
+    }
+    os << ".shared.b16 ";
+    int num = op->args[6].as<IntImmNode>()->value;
+    if (num == 1) {
+      os << "%0, [%1];\\n\"\n: ";
+    }
+    else if (num == 2) {
+      os << "{%0, %1}, [%2];\\n\"\n: ";
+    }
+    else if (num == 4) {
+      os << "{%0, %1, %2, %3}, [%4];\\n\"\n: ";
+    }
+    else {
+      LOG(FATAL) << "Invalid number to ldmatrix";
+    }
+    
+    // print registerd
+    std::stringstream ss;
+    ss << "reinterpret_cast<int*>(";
+    this->PrintExpr(op->args[0], ss);
+    ss << "[";
+    this->PrintExpr(op->args[4], ss);
+    ss << "].x";
+    ss << ")";
+
+    os << "\"=r\"(";
+    os << ss.str() << "[0]";
+    os << ")";
+    for (int i = 1; i < num; i++) {
+      os << ", \"=r\"(";
+      os << ss.str();
+      os << "[";
+      os << i;
+      os << "]";
+      os << ")";
+    }
+
+    os << "\n: \"r\"";
+    os << "(static_cast<unsigned>(__nv_cvta_generic_to_shared_impl(";
+    this->PrintExpr(op->args[5], os);
+    os << ")))";
+    os << ")"   ;
+  } else if (op->op.same_as(builtin::tvm_pipeline_memcpy_async())) {
+    need_pipeline_h_ = true;
+    ICHECK_GE(op->args.size(), 7U);
+    ICHECK_LE(op->args.size(), 8U);
+    if (op->args[5].as<StringImmNode>()->value == "_pipeline_scope_shared"||
+    op->args[5].as<StringImmNode>()->value == "_pipeline_scope_shared.dyn") {
+      // only shared memory supports synchronization primitives
+      std::stringstream ss;
+      this->PrintType(DataType(
+        runtime::String2DLDataType(op->args[6].as<StringImmNode>()->value)), ss);
+      std::string dtype_str = ss.str();
+      os << "__pipeline_memcpy_async(";
+      // datatype
+      os << "(" << dtype_str << "*)";
+      // target ptr
+      this->PrintExpr(op->args[0], os);
+      os << " + ";
+      // target offset
+      this->PrintExpr(op->args[1], os);
+      os << ", ";
+      // source ptr
+      this->PrintExpr(op->args[2], os);
+      os << " + ";
+      // source offset
+      this->PrintExpr(op->args[3], os);
+      os << ", ";
+      // size
+      this->PrintExpr(op->args[4], os);
+      os << " * sizeof("; 
+      // this->PrintExpr(op->args[0], os);
+      // os << "[0]";
+      os << dtype_str;
+      os << ")";
+      if (op->args.size() == 8U) {
+        // zfill
+        os << ", (";
+        this->PrintExpr(op->args[7], os);
+        os << ") ? 0 : (";
+        this->PrintExpr(op->args[4], os);
+        os << " * sizeof("; 
+        // this->PrintExpr(op->args[0], os);
+        // os << "[0]";
+        os << dtype_str;
+        os << ")";
+        os << ")";
+      }
+      os << ")";
+    }
+  } else if (op->op.same_as(builtin::tvm_pipeline_producer_acquire())) {
+    need_pipeline_h_ = true;
+    ICHECK_EQ(op->args.size(), 3U);
+    if (((op->args[1].as<StringImmNode>()->value == "shared") ||
+    (op->args[1].as<StringImmNode>()->value == "shared.dyn")) &&
+    ((op->args[0].as<StringImmNode>()->value == "_pipeline_scope_shared") ||
+    (op->args[0].as<StringImmNode>()->value == "_pipeline_scope_shared.dyn"))) {
+      // only shared memory supports synchronization primitives
+      os << "my_pipeline::pipeline_scope_threadblock<";
+      this->PrintExpr(op->args[2], os);
+      os << ">::";
+      os << "producer_acquire()";
+    }
+  } else if (op->op.same_as(builtin::tvm_pipeline_producer_commit())) {
+    need_pipeline_h_ = true;
+    ICHECK_EQ(op->args.size(), 3U);
+    if (((op->args[1].as<StringImmNode>()->value == "shared") ||
+    (op->args[1].as<StringImmNode>()->value == "shared.dyn")) &&
+    ((op->args[0].as<StringImmNode>()->value == "_pipeline_scope_shared") ||
+    (op->args[0].as<StringImmNode>()->value == "_pipeline_scope_shared.dyn"))) {
+      // only shared memory supports synchronization primitives
+      os << "my_pipeline::pipeline_scope_threadblock<";
+      this->PrintExpr(op->args[2], os);
+      os << ">::";
+      os << "producer_commit()";
+    }
+  } else if (op->op.same_as(builtin::tvm_pipeline_consumer_wait())) {
+    need_pipeline_h_ = true;
+    ICHECK_EQ(op->args.size(), 3U);
+    if (((op->args[1].as<StringImmNode>()->value == "shared") ||
+    (op->args[1].as<StringImmNode>()->value == "shared.dyn")) &&
+    ((op->args[0].as<StringImmNode>()->value == "_pipeline_scope_shared") ||
+    (op->args[0].as<StringImmNode>()->value == "_pipeline_scope_shared.dyn"))) {
+      // only shared memory supports synchronization primitives
+      os << "my_pipeline::pipeline_scope_threadblock<";
+      this->PrintExpr(op->args[2], os);
+      os << ">::";
+      os << "consumer_wait();";
+    }
+  } else if (op->op.same_as(builtin::tvm_pipeline_consumer_release())) {
+    need_pipeline_h_ = true;
+    ICHECK_EQ(op->args.size(), 3U);
+    if (((op->args[1].as<StringImmNode>()->value == "shared") ||
+    (op->args[1].as<StringImmNode>()->value == "shared.dyn")) &&
+    ((op->args[0].as<StringImmNode>()->value == "_pipeline_scope_shared") ||
+    (op->args[0].as<StringImmNode>()->value == "_pipeline_scope_shared.dyn"))) {
+      // only shared memory supports synchronization primitives
+      os << "my_pipeline::pipeline_scope_threadblock<";
+      this->PrintExpr(op->args[2], os);
+      os << ">::";
+      os << "consumer_release()";
+    }
+  } else if (op->op.same_as(builtin::tvm_pipeline_decl())) {
+    need_pipeline_h_ = true;
+    ICHECK_EQ(op->args.size(), 3U);
+    if (((op->args[1].as<StringImmNode>()->value == "shared") ||
+    (op->args[1].as<StringImmNode>()->value == "shared.dyn"))) {
+        // only shared memory supports synchronization primitives
+      if (((op->args[0].as<StringImmNode>()->value == "_pipeline_scope_shared") ||
+      (op->args[0].as<StringImmNode>()->value == "_pipeline_scope_shared.dyn"))) {
+        // os << "auto ";
+        // // this->PrintExpr(op->args[0], os);
+        // std::stringstream ss;
+        // this->PrintExpr(op->args[0], ss);
+        // os << (ss.str().substr(1, ss.str().length()-2));
+        
+        // os << " = cuda::make_pipeline()"; // seems stage number is not needed
+      }
+      else {
+        ICHECK(false);
+      }
+    }
+  } else if (op->op.same_as(builtin::tvm_pipeline_flush())) {
+    need_pipeline_h_ = true;
+    ICHECK_EQ(op->args.size(), 3U);
+    if (((op->args[1].as<StringImmNode>()->value == "shared") ||
+    (op->args[1].as<StringImmNode>()->value == "shared.dyn")) &&
+    ((op->args[0].as<StringImmNode>()->value == "_pipeline_scope_shared") ||
+    (op->args[0].as<StringImmNode>()->value == "_pipeline_scope_shared.dyn"))) {
+      // only shared memory supports synchronization primitives
+      os << "my_pipeline::pipeline_scope_threadblock<";
+      this->PrintExpr(op->args[2], os);
+      os << ">::";
+      os << "flush()";
+    }
   } else {
     CodeGenC::VisitExpr_(op, os);
   }
@@ -753,8 +1298,8 @@ void CodeGenCUDA::VisitStmt_(const AllocateNode* op) {
       ICHECK(op->dtype == DataType::Float(16) || op->dtype == DataType::Int(8) ||
              op->dtype == DataType::UInt(8) || op->dtype == DataType::Int(4) ||
              op->dtype == DataType::UInt(4) || op->dtype == DataType::Int(1) ||
-             op->dtype == DataType::BFloat(16))
-          << "Matrix_a and matrix_b only support half or char or unsigned char "
+             op->dtype == DataType::BFloat(16) || op->dtype == DataType::Float(32))  // Add float for A100 tensor core
+          << "Matrix_a and matrix_b only support float, half or char or unsigned char "
           << "or uint4 or int4 or int1 type for now";
     } else {
       ICHECK(op->dtype == DataType::Float(16) || op->dtype == DataType::Float(32) ||
@@ -1016,7 +1561,10 @@ void CodeGenCUDA::PrintWmmaScope(const std::string& scope, DataType t, const Var
   std::stringstream type;
   PrintType(t, type);
   std::string shape_str = fragment_shapes[variable];
-  if ((t.is_int() || t.is_uint()) && t.bits() < 8 && t.lanes() == 1) {
+  if (t.is_float() && t.bits() > 16 && scope != "wmma.accumulator"){
+    type.str(std::string());
+    type << "nvcuda::wmma::precision::tf32";
+  } else if ((t.is_int() || t.is_uint()) && t.bits() < 8 && t.lanes() == 1) {
     type.str(std::string());
     if (t.is_int()) {
       if (t.bits() == 4) {

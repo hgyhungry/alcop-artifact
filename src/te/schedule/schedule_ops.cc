@@ -56,6 +56,14 @@ Stmt MakePipeline(const Stage& s, const std::unordered_map<IterVar, Range>& dom_
     pipeline = AttrStmt(s->op, tir::attr::rolling_buffer_scope, Bool(true), pipeline);
   }
 
+  if (s->pipelined_buffer) {
+    pipeline = AttrStmt(s->op, tir::attr::pipelined_buffer_scope, s->num_pipelined_stage, pipeline);
+  }
+
+  if (s->swizzled_buffer) {
+    pipeline = AttrStmt(s->op, tir::attr::swizzled_buffer_scope, Bool(true), pipeline);
+  }
+
   return s->op->BuildRealize(s, dom_map, pipeline, s->scope);
 }
 

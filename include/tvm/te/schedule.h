@@ -257,6 +257,16 @@ class Stage : public ObjectRef {
    */
   TVM_DLL Stage& rolling_buffer();  // NOLINT(*)
   /*!
+   * \brief Compute current stage with pipelined buffering.
+   * \return reference to self.
+   */
+  TVM_DLL Stage& pipelined_buffer(int num_stage);  // NOLINT(*)
+  /*!
+   * \brief Compute current stage with swizzled address.
+   * \return reference to self.
+   */
+  TVM_DLL Stage& swizzled_buffer();
+  /*!
    * \brief whether the stage has been scheduled.
    * \return whether the stage has been scheduled.
    */
@@ -500,6 +510,12 @@ class StageNode : public Object {
   bool double_buffer{false};
   /*! \brief Whether apply rolling buffer optimization to this stage */
   bool rolling_buffer{false};
+  /*! \brief Whether apply pipelined buffer optimization to this stage */
+  bool pipelined_buffer{false};
+  /*! \brief The default number of pipelining stages */
+  int  num_pipelined_stage{1};
+  /*! \brief Whether apply swizzled buffer optimization to this stage */
+  bool swizzled_buffer{false};
   /*!
    * \brief The parent group of the current stage.
    *  The stage cannot be assigned to stages outside the group.

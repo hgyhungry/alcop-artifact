@@ -990,7 +990,15 @@ void CodeGenC::VisitStmt_(const EvaluateNode* op) {
   std::string vid = this->PrintExpr(op->value);
   if (vid != "") {
     this->PrintIndent();
-    this->stream << "(void)" << vid << ";\n";
+    // for tvm_pipeline_decl, adding (void) causes syntax error
+    // the current method: if the string contains "=", this means
+    // it is an assignment, need to declare the (void) type; 
+    // otherwise it is a function call (e.g. pipeline buffer declaration)
+    // and no "(void)" is added 
+    // todo (Guyue): a better way to declare pipeline
+    if (vid.find("=") == std::string::npos)
+      this->stream << "(void)";
+    this->stream << vid << ";\n";
   }
 }
 

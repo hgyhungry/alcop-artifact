@@ -45,7 +45,14 @@ The image is build just using the scripts in the previous part.
 
 ```bash
 docker run -it --gpus all -w /tvm hguyue1/alcop:latest bash
+
+# inside the docker
+export TVM_HOME=/tvm
+export PYTHONPATH=$TVM_HOME/python:${PYTHONPATH} # to use tvm python package
+
 ```
+
+The source code is in `/tvm` of the docker image. Environment variable `TVM_HOME` is also set to `/tvm`.
 
 # Check the auto-pipelining unit test
 ```bash
